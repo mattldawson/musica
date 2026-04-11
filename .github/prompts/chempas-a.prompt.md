@@ -48,41 +48,12 @@ prescribed LWC). This avoids a GFS dependency while still exercising all code pa
 6. **CI pipeline** — GitHub Actions: build container → compile → test on every PR.
    480-km mesh, 2 MPI ranks. *(depends on 5)*
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Pre-requisite: podman (or docker)
-# 1. Pre-checkout physics externals and lookup tables (one-time, on host)
-podman run --rm -v "$(pwd):/mpas:Z" -w /mpas/src/core_atmosphere/physics \
-    chempas-deps ./../tools/manage_externals/checkout_externals --externals ./../Externals.cfg
-podman run --rm -v "$(pwd):/mpas:Z" -w /mpas/src/core_atmosphere/physics/physics_wrf/files \
-    chempas-deps bash -c 'curl -sSf -o MPAS-Data.tar.gz \
-    https://codeload.github.com/MPAS-Dev/MPAS-Data/tar.gz/v8.2 && \
-    tar xzf MPAS-Data.tar.gz && mv MPAS-Data-8.2/atmosphere/physics_wrf/files/* . && \
-    rm -rf MPAS-Data.tar.gz MPAS-Data-8.2'
-
-# 2. Build all container stages
-podman build -f docker/Containerfile --target deps  -t chempas-deps  .
-podman build -f docker/Containerfile --target build -t chempas-build .
-podman build -f docker/Containerfile --target run   -t chempas-run   .
-
-# 3. Download mesh data
-bash scripts/download_data.sh data
-
-# 4. Run JW baroclinic wave test (2 MPI ranks, 1-day simulation)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2
-
-# Expected: "JW baroclinic wave test PASSED", output.nc ~ 33 MB
-# Verify output contains expected fields:
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'ncdump -h /mpas/data/jw_480km/output.nc | grep -E "surface_pressure|theta|uReconstructZonal"'
-```
-
-**Done when:** JW test prints `PASSED`, output.nc exists with pressure/theta/wind fields.
+See `verification/README.md` for setup, then open
+[`verification/phase00_jw_baseline.ipynb`](verification/phase00_jw_baseline.ipynb).
+Plots surface pressure, potential temperature, zonal/meridional wind maps and
+profiles, time evolution statistics, and runs automated pass/fail checks.
 
 ---
 
@@ -96,35 +67,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
 11. **Tracer indexing unit test** — Standalone Fortran test for name ↔ index mapping
     (reused in Phase 3 species mapping).
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild with tracer changes
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Run JW test (48 hours, 2 MPI ranks) with passive tracers
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2
-
-# Verify tracers exist in output
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'ncdump -h /mpas/data/jw_480km/output.nc | grep -E "tracer[0-9]+"'
-
-# Verify mass conservation (total tracer mass at t=0 vs t=final)
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 -c "
-import netCDF4 as nc
-ds = nc.Dataset(\"/mpas/data/jw_480km/output.nc\")
-for v in ds.variables:
-    if v.startswith(\"tracer\"):
-        print(f\"{v}: t=0 sum={ds[v][0].sum():.6e}, t=-1 sum={ds[v][-1].sum():.6e}\")
-"'
-```
-
-**Done when:** Tracers appear in output, mass conserved to machine precision over 48 hours.
+[`verification/phase01_tracers.ipynb`](verification/phase01_tracers.ipynb) —
+Plots tracer mass conservation timeseries, spatial distribution maps, and
+negative-value checks.
 
 ---
 
@@ -146,36 +93,11 @@ for v in ds.variables:
 17. **Integration test** — JW + Chapman on 480-km mesh; verify O3 diurnal cycle; compare
     single-column against standalone Chapman tutorial (tutorial 10).
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild with MUSICA=true
-podman build -f docker/Containerfile --target build -t chempas-build \
-    --build-arg MUSICA=true .
-
-# Run JW + Chapman (24 hours)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_enabled=true, config=chapman
-
-# Verify O3 diurnal cycle
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 -c "
-import netCDF4 as nc
-ds = nc.Dataset(\"/mpas/data/jw_480km/output.nc\")
-o3 = ds[\"o3\"]  # shape: (time, cell, level)
-for t in range(ds.dimensions[\"Time\"].size):
-    print(f\"t={t}: O3 min={o3[t].min():.3e} max={o3[t].max():.3e} mean={o3[t].mean():.3e}\")
-"'
-
-# Compare single-column against tutorial 10 reference
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 scripts/compare_chapman_tutorial10.py'
-```
-
-**Done when:** O3 shows diurnal variation, single-column matches tutorial 10 within solver tolerance, O+O1D+O3 mass conserved.
+[`verification/phase02_chapman.ipynb`](verification/phase02_chapman.ipynb) —
+Plots O3 diurnal cycle (map + timeseries), odd-oxygen (O+O1D+O3) mass
+conservation, and single-column comparison against tutorial 10.
 
 ---
 
@@ -198,31 +120,11 @@ is a CAM dycore).*
 20. **Mechanism-switching test** — Swap `config_chemistry_config_path` from Chapman →
     analytical test mechanism (`configs/v0/analytical/`) without recompilation. Both run.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# No rebuild needed — same binary, different config
-
-# Run with Chapman config (should produce identical output to Phase 2)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_config_path=configs/chapman
-
-# Switch to analytical test mechanism — NO RECOMPILATION
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_config_path=configs/analytical
-
-# Verify output has mechanism-specific species names
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'ncdump -h /mpas/data/jw_480km/output.nc | grep -E "float .*(nCells, nVertLevels)"'
-```
-
-**Done when:** Chapman gives identical results to Phase 2; analytical mechanism runs without recompilation; species names in NetCDF match mechanism JSON.
+[`verification/phase03_runtime_species.ipynb`](verification/phase03_runtime_species.ipynb) —
+Compares species sets between Chapman and analytical mechanisms,
+and verifies bitwise-identical output when rerunning Chapman.
 
 ---
 
@@ -256,32 +158,11 @@ are deferred to future work.*
     trivial test mechanism that has one emitted and one deposited species. Verify mass
     budget: total source = emissions − dry dep − wet dep ± chemistry.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild with emissions/deposition modules
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Run Chapman — stubs should be no-ops (no EMISSION/FIRST_ORDER_LOSS in Chapman)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_config_path=configs/chapman
-
-# Run test mechanism with 1 emitted + 1 deposited species
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_config_path=configs/emis_dep_test
-
-# Verify mass budget
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 scripts/check_mass_budget.py /mpas/data/jw_480km/output.nc'
-```
-
-**Done when:** Chapman results unchanged from Phase 2/3; test mechanism reaches steady state; mass budget (emissions − deposition ± chemistry) closes to solver tolerance.
+[`verification/phase04_emissions_deposition.ipynb`](verification/phase04_emissions_deposition.ipynb) —
+Plots emitted species accumulation, deposited species decay,
+and mass budget closure timeseries.
 
 ---
 
@@ -295,26 +176,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
     to MICM photolysis parameters using the aliasing config.
 28. **Regression test** — Verify Chapman photolysis rates unchanged after TUV-x upgrade.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild with updated TUV-x config
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Run JW + Chapman with TS1/TSMLT TUV-x
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2
-
-# Compare photolysis rates against Phase 2 reference
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 scripts/compare_photolysis_rates.py \
-    /mpas/data/jw_480km/output.nc /mpas/data/reference/phase2_output.nc'
-```
-
-**Done when:** Photolysis rates for Chapman reactions match Phase 2 within tolerance; alias mapping verified via diagnostics.
+[`verification/phase05_tuvx_photolysis.ipynb`](verification/phase05_tuvx_photolysis.ipynb) —
+Plots photolysis rate vertical profiles and regression comparison
+against Phase 2 reference output.
 
 ---
 
@@ -334,33 +200,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
     < 2 sec/chemistry step. GPTL timers.
 33. **Integration test** — 24-hour forecast; O3, NO, NO2, CO diurnal patterns; mass budgets.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Config-only switch to TS1 — NO recompilation needed
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config_chemistry_config_path=configs/ts1
-
-# Verify no negative species and basic diurnal patterns
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 -c "
-import netCDF4 as nc
-ds = nc.Dataset(\"/mpas/data/jw_480km/output.nc\")
-for sp in [\"O3\", \"NO\", \"NO2\", \"CO\"]:
-    if sp in ds.variables:
-        vals = ds[sp][:]
-        print(f\"{sp}: min={vals.min():.3e} max={vals.max():.3e} any_negative={bool((vals<0).any())}\")
-"'
-
-# Performance timing (GPTL output)
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'grep chemistry /mpas/data/jw_480km/timing.* || echo "Add GPTL timers"'
-```
-
-**Done when:** TS1 runs with config-only switch (no code changes); 48-hour run stable; no negative species; O3/NO2 diurnal patterns visible; < 2 sec/step.
+[`verification/phase06_ts1.ipynb`](verification/phase06_ts1.ipynb) —
+Plots O3/NO/NO2/CO diurnal cycles, spatial O3 maps, and checks
+all ~70 species for negative values.
 
 ---
 
@@ -390,26 +234,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
     file, attach to MICM with TS1, solve one timestep. Compare against Python tutorial 14
     output.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Build updated MUSICA with MIAM Fortran bindings
-cd /path/to/musica && mkdir -p build && cd build
-cmake .. -DMUSICA_BUILD_FORTRAN_INTERFACE=ON -DMUSICA_BUILD_CARMA=OFF
-make -j$(nproc) && ctest --output-on-failure
-
-# Specifically run MIAM Fortran test
-ctest -R miam_fortran --output-on-failure
-
-# Verify pkg-config exposes MIAM
-pkg-config --libs musica-fortran | grep -i miam
-
-# Rebuild MPAS container with updated MUSICA
-cd /path/to/MPAS-Model
-podman build -f docker/Containerfile --target build -t chempas-build .
-```
-
-**Done when:** MIAM Fortran unit test matches tutorial 14 output; `pkg-config musica-fortran` includes MIAM; MPAS still builds with `MUSICA=true`.
+[`verification/phase07_miam_bindings.ipynb`](verification/phase07_miam_bindings.ipynb) —
+Compares MIAM Fortran unit test output against Python tutorial 14
+(CAM Cloud Chemistry) reference values.
 
 ---
 
@@ -434,36 +263,11 @@ at runtime.*
 44. **Switching test** — Change MIAM config (1 section → 2 sections) without
     recompilation.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild MPAS with aerosol mapping support
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Run with minimal aerosol config (1 representation, 1 species)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config includes minimal MIAM
-
-# Verify aerosol fields in output
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'ncdump -h /mpas/data/jw_480km/output.nc | grep -E "aerosol|section|representation"'
-
-# Switch to 2-section config — NO recompilation
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config includes 2-section MIAM
-
-# Verify new fields appeared
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'ncdump -h /mpas/data/jw_480km/output.nc | grep -c section'
-```
-
-**Done when:** Aerosol fields in NetCDF match MIAM config; switching 1→2 sections works without recompilation; gas-phase results unchanged.
+[`verification/phase08_aerosol_config.ipynb`](verification/phase08_aerosol_config.ipynb) —
+Compares aerosol field sets between 1-section and 2-section configs
+and verifies gas-phase results are unchanged.
 
 ---
 
@@ -479,36 +283,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
 48. **Integration test** — TS1 + CAM Cloud Chemistry on 480-km JW mesh with prescribed
     cloud layer (700–850 hPa, LWC=0.3 g/m³); sulfate production in cloudy regions.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Rebuild with MIAM integration
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Run TS1 + CAM Cloud Chemistry (JW with prescribed cloud layer)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # config includes TS1 + MIAM cloud chem
-
-# Verify sulfate production in cloudy cells
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 -c "
-import netCDF4 as nc
-ds = nc.Dataset(\"/mpas/data/jw_480km/output.nc\")
-if \"SO4\" in ds.variables:
-    so4 = ds[\"SO4\"][:]
-    print(f\"SO4: t=0 max={so4[0].max():.3e}, t=-1 max={so4[-1].max():.3e}\")
-    print(f\"SO4 increased: {so4[-1].max() > so4[0].max()}\")
-"'
-
-# Verify DAE solver convergence (no failures in log)
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'grep -i "solver.*fail\|DAE.*error" /mpas/data/jw_480km/log.atmosphere.* || echo "No solver failures"'
-```
-
-**Done when:** DAE solver converges in cloudy cells; sulfate production visible; no crashes in clear-sky cells; 48-hour run completes.
+[`verification/phase09_cloud_chemistry.ipynb`](verification/phase09_cloud_chemistry.ipynb) —
+Plots sulfate production timeseries in cloud layer, compares cloudy
+vs clear-sky cells, and checks DAE solver convergence.
 
 ---
 
@@ -520,35 +299,11 @@ podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
 51. **Documentation** — Build, configure, run, add new mechanisms. Container-first.
 52. **Performance scaling** — 240-km and 120-km mesh benchmarks.
 
-### Build / Run / Verify
+### Verify
 
-```bash
-# Full-stack build
-podman build -f docker/Containerfile --target build -t chempas-build .
-
-# Generate regression reference (TS1 + CAM Cloud + TUV-x TS1/TSMLT)
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 2  # full config
-cp data/jw_480km/output.nc data/reference/phase10_reference.nc
-
-# Regression test: compare against reference
-podman run --rm -v "$(pwd)/data:/mpas/data:Z" chempas-build \
-    bash -c 'python3 scripts/regression_test.py \
-    /mpas/data/jw_480km/output.nc /mpas/data/reference/phase10_reference.nc'
-
-# 240-km mesh test
-bash scripts/download_data.sh data 240km
-podman run --rm \
-    -v "$(pwd)/data:/mpas/data:Z" \
-    -v "$(pwd)/scripts:/mpas/scripts:Z" \
-    -w /mpas chempas-build \
-    bash scripts/run_jw_test.sh 4  # 240-km, 4 MPI ranks
-```
-
-**Done when:** Regression test detects bitwise differences; 240-km run completes; full build-to-run < 1 hour for a new user.
+[`verification/phase10_regression.ipynb`](verification/phase10_regression.ipynb) —
+Runs bitwise regression against stored reference, plots per-species
+differences, and compares 480-km vs 240-km mesh statistics.
 
 ---
 
