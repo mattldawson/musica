@@ -1,6 +1,9 @@
 # copilot adds this when it works on prs
 _codeql_detected_source_root
 
+# MPAS-Model clone (separate repo, lives here for workspace convenience)
+MPAS-Model/
+
 # cmake and build stuff
 python_build/
 build/
