@@ -136,6 +136,20 @@ feed MICM's existing `EMISSION` and `FIRST_ORDER_LOSS` reaction types — not
 detailed inventories. Detailed emissions from files and refined deposition handling
 are deferred to future work.*
 
+__Notes from the human__:
+* Remember that we'll be adding the TS1 mechanism soon, so instead of hardcoding emissions
+  and deposition for specific species, it might make sense to create a handful of generic
+  2/3-D profiles for emissions and deposition that can be configured for specific species
+  in the config files for each mechanism.
+* Because we're using an idealized MPAS configuration, I don't think we have alnd-use types
+  and things like this available, and the goal here is not really to create a realistic
+  configuration for CheMPAS-A, but just to verify our implementation of each Phase, For
+  the emissions and deposition, we want to be able to see downstream effects of gases
+  being emitted and deposited as air parcels move around the domain.
+* You can add some extra species to the Chapman mechanism for verifying the emissions
+  and deposition logic are working as expected. They dont have to correspond to real-
+  world species. foo, bar, etc. are fine.
+
 21. **Stub emissions module** — `mpas_chemistry_emissions.F90`. For each MICM `EMISSION`
     reaction, compute a surface emission rate and pass it to MICM as a user-defined
     parameter before each `solve()` call. Rates come from a simple config file
@@ -166,7 +180,25 @@ and mass budget closure timeseries.
 
 ---
 
+## Phase 4b: Mid-Development Review
+*At this point, let's step back and look at what's been implemented, and come up with a plan
+to address any issues with what we've done so far. We can review the plan as a team and
+determine whether and how to implement any changes.
+
+Things to consider:
+- Now that species are configured at run-time, we should have no references in code to
+specific chemical species. Please review all the code we've added and ensure this is the
+case. If there are any hard-coded species, describe how that part of the code can be refactored to be mechanism-agnostic.
+- The mapping between MPAS, TUV-x and MICM grid cells is very complex and error prone. Please
+develop a plan for adding a Jupyter notebook as part of this mini-phase that can convince us
+that the mapping is precisely correct in a quantitative way.
+- Review our development thus far for any debug code, anything that looks like it could be
+a bug, and anything that just needs to be cleaned up. Develop as part of this mini-phase a plan for how to address any issues you find.
+
+---
+
 ## Phase 5: TUV-x TS1/TSMLT Photolysis
+*Remember: No species or mechanism names anywhere in the Fortran code.*
 
 25. **Upgrade TUV-x config** — Switch to `configs/tuvx/ts1_tsmlt.json` for the full
     photolysis rate set needed by TS1.
@@ -185,6 +217,21 @@ against Phase 2 reference output.
 ---
 
 ## Phase 6: TS1 Mechanism (~70 species, ~200 reactions)
+*Remember: No species or mechanism names anywhere in the Fortran code.*
+
+__Notes from the human__:
+* Let's make sure that we have enough precurors in place (either by initial conditions or
+emissions) that almost all species have non-zero concentrations after a few chemistry steps.
+I think there are 4 or 5 species that don't acutally participate in anything, so they can
+be zero.
+* There's also surface reactions on aerosols, but we don't have aerosols yet, so
+let's add an aerosol stub that let's us provide an initial vertical aerosol profile in a csv
+file, just like we set up initial conditions for gas-phase species. This will let us verify that surface reactions are working as expected.
+* Mapping of photolysis reactions from TUV-x to MICM will be important to verify carefully.
+Let's make sure that we have a plan for quantitatively verifying this mapping in the Jupyter notebook for this phase.
+* Before starting on step 26. let's reorganize the chemistry data folder. We essentially want one folder
+under `chemistry_data/` for each mechanism (analytical, chapman, ts1, etc.) that contains all the config files needed for that mechanism (MICM mechanism JSON, TUV-x photolysis config, emissions/deposition config, etc.). This will make it easier to manage the growing number of config files and ensure that when we switch mechanisms we have all the right configs in place. And we want to make sure we don't have any hard-coded
+paths to these folders anywhere in the Fortran code. The path to the mechanism folder should be passed in as an argument (e.g., `config_chemistry_config_path`) and then all config files for that mechanism should be read relative to that path.
 
 29. **Switch config to TS1** — Point `config_chemistry_config_path` at
     `configs/v1/ts1/ts1.json`. Thanks to Phase 3, this should "just work" — runtime
@@ -212,16 +259,18 @@ all ~70 species for negative values.
 
 *Blocker for Phases 8–9. Work happens in this MUSICA repo.*
 
-34. **Design MIAM Fortran API** — Mirror C++/Python pattern. Key types: `miam_model_t`,
-    representations, processes, constraints. Design review before implementation.
-35. **Implement MIAM C interface** — `src/miam/miam_c_interface.cpp` following
-    `src/micm/micm.cpp` pattern. Functions: `CreateMiamModel`, `DeleteMiamModel`,
-    `AddMiamToMicm`.
-36. **Implement MIAM Fortran bindings** — `fortran/miam/miam.F90` using `bind(C)`,
-    following `fortran/micm/micm.F90` as template.
-37. **Add DAE solver types to Fortran API** — `RosenbrockDAE4`, `RosenbrockDAE6` in
+34. **Develop Detailed Plan** - Work with the human to create a detailed plan for this
+    phase. Include in the plan the proposed updated Mechanism Configuration v1 schema. Put
+    the plan in a markdown doc alongside this one. Below are notes and things to include:
+35. **MUSICA Fortran API** - We shouldn't actually have to update the MUSICA Fortran
+    API to allow MIAM to be used from Fortran. The Fortran API for all components requires
+    that most of the configuration be in config files. As long as Mechanism Configuration
+    is update to include MIAM configuration, all we should have to do is update the MICM
+    constructor to build with MIAM. API users will see MIAM contributions just as additional
+    state variables and parameters. Convince yourself that this is true, and ask the human if you have any doubts.
+36. **Add DAE solver types to Fortran API** — `RosenbrockDAE4`, `RosenbrockDAE6` in
     `SolverType` enum. `micm_t` constructor accepts external models.
-38. **Extend Mechanism Configuration for MIAM** — If not already done by this point
+37. **Extend Mechanism Configuration for MIAM** — If not already done by this point
     (see `docs/MIAM_INTEGRATION_PLAN.md` Phase 4):
     - Extend MechanismConfiguration C++ library to parse MIAM aerosol model definitions
       (representations, processes, constraints) from JSON/YAML
@@ -230,7 +279,7 @@ all ~70 species for negative values.
     - Wire parsed MIAM configs into solver construction through the C/Fortran interface
     - This enables MPAS to set up MIAM from a config file path, just like it does for
       MICM — no programmatic Fortran construction of MIAM objects needed
-39. **Fortran unit test** — CAM Cloud Chemistry config: create MIAM model from config
+38. **Fortran unit test** — CAM Cloud Chemistry config: create MIAM model from config
     file, attach to MICM with TS1, solve one timestep. Compare against Python tutorial 14
     output.
 
@@ -242,66 +291,41 @@ Compares MIAM Fortran unit test output against Python tutorial 14
 
 ---
 
-## Phase 8: Runtime Aerosol Representation Configuration from MIAM
+## Phase 8: CAM Cloud Chemistry in MPAS
+*Remember: No species or mechanism names anywhere in the Fortran code.*
 
-*Mirrors Phase 3 but for aerosol/condensed-phase fields. MIAM defines representations
-(e.g., `UniformSection`) and condensed-phase species. These are dynamically allocated
-at runtime.*
-
-40. **Query MIAM for representations and species** — At init-time:
-    - Enumerate condensed-phase representations (sections/modes) and properties
-      (radius range, phase name)
-    - Enumerate aqueous/condensed species within each representation
-    - Allocate MPAS fields for aerosol number concentrations and mass mixing ratios
-      per representation
-41. **Generic cloud coupling** — Map MPAS cloud fraction, LWC, droplet radius to MIAM
-    representations based on representation metadata, not hardcoded.
-42. **Representation ↔ MPAS field mapping** — Generic: if MIAM config defines 2 cloud
-    sections instead of 1, MPAS fields adjust automatically.
-43. **Test with minimal aerosol config** — 1 representation, 1 condensed species.
-    Validates allocation machinery.
-44. **Switching test** — Change MIAM config (1 section → 2 sections) without
-    recompilation.
-
-### Verify
-
-[`verification/phase08_aerosol_config.ipynb`](verification/phase08_aerosol_config.ipynb) —
-Compares aerosol field sets between 1-section and 2-section configs
-and verifies gas-phase results are unchanged.
-
----
-
-## Phase 9: CAM Cloud Chemistry in MPAS
-
-45. **Extend chemistry driver for MIAM** — Create MIAM model at init from config file
-    (using Phase 7 config-driven setup); attach via `AddExternalModel`; switch to
-    `RosenbrockDAE4StandardOrder`.
-46. **Couple cloud properties** — Via generic Phase 8 mapping. Skip aqueous chemistry
-    in clear-sky cells.
-47. **DAE constraint initialization** — Max iterations, tolerance for Henry's Law,
+39. **Extend chemistry driver for MIAM** — Create a MICM solver that includes
+    MIAM cloud chemistry (the CAM cloud chemistry configuration) and a
+    `RosenbrockDAE4StandardOrder` solver.
+40. **Couple cloud properties** — I think MPAS might just have cloud liquid water content
+    available. If so, we can just look for a MICM solver variable named:
+    `CLOUD.MODE.AQUEOUS.H2O` and when it's present set it using the cloud liquid water,
+    and if it's not there, assume there is no cloud chemistry. Other cloud species can be
+    treated like tracers to advect just like gas-phase species. 
+41. **DAE constraint initialization** — Max iterations, tolerance for Henry's Law,
     dissociation equilibria, charge balance, mass conservation.
-48. **Integration test** — TS1 + CAM Cloud Chemistry on 480-km JW mesh with prescribed
+42. **Integration test** — TS1 + CAM Cloud Chemistry on 480-km JW mesh with prescribed
     cloud layer (700–850 hPa, LWC=0.3 g/m³); sulfate production in cloudy regions.
 
 ### Verify
 
-[`verification/phase09_cloud_chemistry.ipynb`](verification/phase09_cloud_chemistry.ipynb) —
+[`verification/phase08_cloud_chemistry.ipynb`](verification/phase08_cloud_chemistry.ipynb) —
 Plots sulfate production timeseries in cloud layer, compares cloudy
 vs clear-sky cells, and checks DAE solver convergence.
 
 ---
 
-## Phase 10: Hardening & Validation
+## Phase 9: Hardening & Validation
 
-49. **End-to-end regression test** — Full config (TS1 + CAM Cloud + TUV-x TS1/TSMLT);
+43. **End-to-end regression test** — Full config (TS1 + CAM Cloud + TUV-x TS1/TSMLT);
     store reference output.
-50. **Multi-resolution testing** — Verify on 240-km mesh (10,242 cells).
-51. **Documentation** — Build, configure, run, add new mechanisms. Container-first.
-52. **Performance scaling** — 240-km and 120-km mesh benchmarks.
+44. **Multi-resolution testing** — Verify on 240-km mesh (10,242 cells).
+45. **Documentation** — Build, configure, run, add new mechanisms. Container-first.
+46. **Performance scaling** — 240-km and 120-km mesh benchmarks.
 
 ### Verify
 
-[`verification/phase10_regression.ipynb`](verification/phase10_regression.ipynb) —
+[`verification/phase09_regression.ipynb`](verification/phase09_regression.ipynb) —
 Runs bitwise regression against stored reference, plots per-species
 differences, and compares 480-km vs 240-km mesh statistics.
 
@@ -323,14 +347,6 @@ differences, and compares 480-km vs 240-km mesh statistics.
 | `src/miam/miam_builder.cpp` | MIAM C++ ↔ MICM integration reference |
 | `docs/MIAM_INTEGRATION_PLAN.md` | Existing MIAM integration plan (Phases 0–5) |
 
-### MUSICA (new — Phase 7)
-
-| File | Role |
-|------|------|
-| `fortran/miam/miam.F90` | MIAM Fortran bindings |
-| `src/miam/miam_c_interface.cpp` | MIAM C interface |
-| `include/musica/miam/` | C interface headers |
-
 ### MPAS-A (new)
 
 | File | Role |
@@ -343,7 +359,6 @@ differences, and compares 480-km vs 240-km mesh statistics.
 | `src/core_atmosphere/chemistry/mpas_chemistry_emissions.F90` | Stub emissions (Phase 4) |
 | `src/core_atmosphere/chemistry/mpas_chemistry_dry_deposition.F90` | Stub dry deposition (Phase 4) |
 | `src/core_atmosphere/chemistry/mpas_chemistry_wet_deposition.F90` | Stub wet deposition (Phase 4) |
-| `src/core_atmosphere/chemistry/mpas_chemistry_aerosol_mapping.F90` | Aerosol ↔ MIAM mapping (Phase 8) |
 | `test/` | Test harness, reference data |
 | `scripts/download_mesh.sh` | Mesh downloader |
 
@@ -361,8 +376,6 @@ differences, and compares 480-km vs 240-km mesh statistics.
 - **Runtime species allocation** (Phase 3): CAM-MPAS `atm_allocate_scalars` pattern
 - **Emissions/deposition** (Phase 4): stub parameterizations feeding MICM's
   `EMISSION`/`FIRST_ORDER_LOSS` reaction types; detailed inventories deferred
-- **Runtime aerosol allocation** (Phase 8): query MIAM model at init
-- **MIAM Fortran bindings + Mechanism Configuration** (Phase 7) block Phases 8–9
 - **Short-lived radicals**: diagnosed locally, not advected (~50% tracer cost reduction)
 
 ## Further Considerations
