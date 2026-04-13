@@ -26,7 +26,7 @@ everything.
 | Layer | MIAM Status |
 |-------|-------------|
 | Mechanism Configuration | ✅ Parses aerosol models from v1 JSON/YAML |
-| MUSICA C interface | ✅ `CreateMicm()` auto-detects MIAM and uses DAE solver |
+| MUSICA C interface | ✅ `CreateMicm()` auto-detects MIAM and uses DAE solver by default |
 | MUSICA Fortran API | ✅ DAE enums added; `micm_t(path, solver)` works with MIAM configs |
 | End-to-end test | ✅ Fortran CAM Cloud Chemistry matches Python reference |
 
@@ -46,7 +46,9 @@ This means:
 - The `ReadConfiguration()` C++ function parses both gas-phase reactions
   **and** aerosol model definitions from a single config file
 - `CreateMicm()` detects the presence of aerosol config and internally calls
-  `CreateMicmWithMiam()` with the appropriate DAE solver
+  `CreateMicmWithMiam()` with the appropriate DAE solver by default if no
+  solver was specified. Errors if aerosol config is included and a non-DAE
+  solver is specified by the user.
 
 From the Fortran user's perspective:
 
@@ -56,22 +58,33 @@ type(micm_t) :: solver
 solver = micm_t("config.json", RosenbrockStandardOrder, error)
 
 ! After Phase 7: same call, but config.json now includes aerosol model
-! → solver automatically uses DAE and includes MIAM
+! → solver automatically includes MIAM
 solver = micm_t("config.json", RosenbrockDAE4StandardOrder, error)
+
+! - or -
+! returns an error because Backward Euler doesn't have constraint option yet
+solver = micm_t("config.json", BackwardEulerStandardOrder, error) ! returns error!
 ```
 
 MIAM contributions appear as additional state variables and parameters in the
 solver state, just as they do through the Python API. The host model sets/gets
-them by name (e.g., `CLOUD.AQUEOUS.SO2_aq`, `CLOUD.MODE.AQUEOUS.H2O`).
+them by name (e.g., `CLOUD.MODE.AQUEOUS.SO2`, `CLOUD.MODE.AQUEOUS.H2O`).
 
 ---
 
 ## Proposed Mechanism Configuration v1 Schema for MIAM
 
 The v1 format currently has four top-level keys: `version`, `name`, `species`,
-`phases`, `reactions`. We add three new top-level keys: `condensed phases`,
-`aerosol representations`, and `aerosol processes`. Constraints are inferred from
-the aerosol process definitions (Henry's Law equilibrium constraints from
+`phases`, `reactions`. We add two new top-level keys: `aerosol representations`
+and `aerosol processes`. The existing `species` section is extended to include
+all species (gas and condensed-phase alike) with their universal properties
+(e.g., molecular weight). The existing `phases` section is extended to include
+both the gas phase and condensed phases — the phase named `gas` is treated
+specially as the gas phase; all other phases are condensed phases available
+for use in aerosol representations. Phase-specific properties (e.g., diffusion
+coefficient, density) are defined on the species entry within the phase.
+The same species can appear in any number of phases. Constraints are inferred
+from the aerosol process definitions (Henry's Law equilibrium constraints from
 Henry's Law phase transfers; dissolved equilibrium constraints from reversible
 reactions with `"equilibrium": true`; linear constraints from explicit
 conservation/balance entries).
@@ -82,7 +95,10 @@ conservation/balance entries).
 version: "1.0.0"
 name: "TS1 + CAM Cloud Chemistry"
 
-# ── Gas-Phase Species (unchanged from current v1) ──────────────────────
+# ── Species ────────────────────────────────────────────────────────────
+# All species (gas and condensed-phase) are defined here with their
+# universal properties (molecular weight, etc.). The same species can
+# appear in any number of phases.
 species:
   - name: SO2
     molecular weight [kg mol-1]: 0.06407
@@ -90,9 +106,25 @@ species:
     molecular weight [kg mol-1]: 0.03401
   - name: O3
     molecular weight [kg mol-1]: 0.04800
+  - name: Hp
+    molecular weight [kg mol-1]: 0.00101
+  - name: OHm
+    molecular weight [kg mol-1]: 0.01701
+  - name: HSO3m
+    molecular weight [kg mol-1]: 0.08107
+  - name: SO3mm
+    molecular weight [kg mol-1]: 0.08007
+  - name: SO4mm
+    molecular weight [kg mol-1]: 0.09607
+  - name: H2O
+    molecular weight [kg mol-1]: 0.01801
   # ... other TS1 gas species ...
 
-# ── Gas Phase (unchanged) ──────────────────────────────────────────────
+# ── Phases ─────────────────────────────────────────────────────────────
+# The phase named "gas" is the gas phase. All other phases are condensed
+# phases that can be included in aerosol representations.
+# Properties defined on a species within a phase are specific to that
+# phase-species combination (e.g., diffusion coefficient, density).
 phases:
   - name: gas
     species:
@@ -102,7 +134,20 @@ phases:
         diffusion coefficient [m2 s-1]: 1.46e-5
       - name: O3
         diffusion coefficient [m2 s-1]: 1.48e-5
-      # ... other species ...
+      # ... other gas-phase species ...
+
+  - name: AQUEOUS
+    species:
+      - name: SO2
+      - name: H2O2
+      - name: O3
+      - name: Hp
+      - name: OHm
+      - name: HSO3m
+      - name: SO3mm
+      - name: SO4mm
+      - name: H2O
+        density [kg m-3]: 997.0
 
 # ── Gas-Phase Reactions (unchanged) ────────────────────────────────────
 reactions:
@@ -113,36 +158,9 @@ reactions:
 # NEW: Aerosol Model Configuration
 # ══════════════════════════════════════════════════════════════════════
 
-# ── Condensed Phases ───────────────────────────────────────────────────
-# Define condensed-phase species and their properties.
-# These are separate from gas-phase species — they exist in aerosol/cloud
-# droplets and are tracked by MIAM representations.
-condensed phases:
-  - name: AQUEOUS
-    species:
-      - name: SO2_aq
-        molecular weight [kg mol-1]: 0.06407
-      - name: H2O2_aq
-        molecular weight [kg mol-1]: 0.03401
-      - name: O3_aq
-        molecular weight [kg mol-1]: 0.04800
-      - name: Hp
-        molecular weight [kg mol-1]: 0.00101
-      - name: OHm
-        molecular weight [kg mol-1]: 0.01701
-      - name: HSO3m
-        molecular weight [kg mol-1]: 0.08107
-      - name: SO3mm
-        molecular weight [kg mol-1]: 0.08007
-      - name: SO4mm
-        molecular weight [kg mol-1]: 0.09607
-      - name: H2O
-        molecular weight [kg mol-1]: 0.01801
-        density [kg m-3]: 997.0
-
 # ── Aerosol Representations ───────────────────────────────────────────
 # How aerosol particles are represented (size distribution).
-# Each representation contains one or more condensed phases.
+# Each representation references condensed phases defined in `phases`.
 aerosol representations:
   - type: UNIFORM_SECTION
     name: CLOUD
@@ -179,7 +197,7 @@ aerosol processes:
     gas phase: gas
     gas-phase species: SO2
     condensed phase: AQUEOUS
-    condensed-phase species: SO2_aq
+    condensed-phase species: SO2
     solvent: H2O
     Henry's law constant:
       HLC_ref [mol m-3 Pa-1]: 1.23
@@ -189,7 +207,7 @@ aerosol processes:
     gas phase: gas
     gas-phase species: H2O2
     condensed phase: AQUEOUS
-    condensed-phase species: H2O2_aq
+    condensed-phase species: H2O2
     solvent: H2O
     Henry's law constant:
       HLC_ref [mol m-3 Pa-1]: 7.4e4
@@ -199,7 +217,7 @@ aerosol processes:
     gas phase: gas
     gas-phase species: O3
     condensed phase: AQUEOUS
-    condensed-phase species: O3_aq
+    condensed-phase species: O3
     solvent: H2O
     Henry's law constant:
       HLC_ref [mol m-3 Pa-1]: 1.15e-2
@@ -216,7 +234,7 @@ aerosol processes:
   #   gas phase: gas
   #   gas-phase species: HNO3
   #   condensed phase: AQUEOUS
-  #   condensed-phase species: HNO3_aq
+  #   condensed-phase species: HNO3
   #   solvent: H2O
   #   Henry's law constant:
   #     HLC_ref [mol m-3 Pa-1]: 2.1e5
@@ -232,7 +250,7 @@ aerosol processes:
     reactants:
       - species name: HSO3m
         coefficient: 1
-      - species name: H2O2_aq
+      - species name: H2O2
         coefficient: 1
     products:
       - species name: SO4mm
@@ -263,7 +281,7 @@ aerosol processes:
   #   condensed phase: AQUEOUS
   #   solvent: H2O
   #   reactants:
-  #     - species name: CO2_aq
+  #     - species name: CO2
   #       coefficient: 1
   #     - species name: H2O
   #       coefficient: 1
@@ -303,7 +321,7 @@ aerosol processes:
     condensed phase: AQUEOUS
     solvent: H2O
     reactants:
-      - species name: SO2_aq
+      - species name: SO2
         coefficient: 1
     products:
       - species name: Hp
@@ -336,16 +354,29 @@ aerosol processes:
   # relationship among species concentrations that must hold at all times.
   # The "algebraic species" is the variable solved algebraically to
   # enforce the constraint.
+  #
+  # The constant can be specified in two ways:
+  #   1. `diagnose from state: true` — compute the constant from the
+  #      current state at the beginning of each solve step as
+  #      C = sum(c_i * [species_i]).  Use this for mass conservation
+  #      constraints where the total varies by grid cell and may change
+  #      between solve steps due to emissions, transport, or deposition.
+  #      When true, `constant [mol m-3]` is ignored (and may be omitted).
+  #   2. `constant [mol m-3]: <value>` — use a fixed constant.
+  #      Use this for charge balance and other constraints with a known
+  #      invariant (e.g., 0.0 for charge neutrality).
+  #      `diagnose from state` defaults to false when omitted.
   - type: LINEAR_CONSTRAINT
     name: sulfur conservation
     algebraic phase: gas
     algebraic species: SO2
+    diagnose from state: true
     terms:
       - phase: gas
         species: SO2
         coefficient: 1.0
       - phase: AQUEOUS
-        species: SO2_aq
+        species: SO2
         coefficient: 1.0
       - phase: AQUEOUS
         species: HSO3m
@@ -353,33 +384,32 @@ aerosol processes:
       - phase: AQUEOUS
         species: SO3mm
         coefficient: 1.0
-    constant [mol m-3]: 3.01e-8
 
   - type: LINEAR_CONSTRAINT
     name: H2O2 conservation
     algebraic phase: gas
     algebraic species: H2O2
+    diagnose from state: true
     terms:
       - phase: gas
         species: H2O2
         coefficient: 1.0
       - phase: AQUEOUS
-        species: H2O2_aq
+        species: H2O2
         coefficient: 1.0
-    constant [mol m-3]: 3.01e-8
 
   - type: LINEAR_CONSTRAINT
     name: O3 conservation
     algebraic phase: gas
     algebraic species: O3
+    diagnose from state: true
     terms:
       - phase: gas
         species: O3
         coefficient: 1.0
       - phase: AQUEOUS
-        species: O3_aq
+        species: O3
         coefficient: 1.0
-    constant [mol m-3]: 1.5e-6
 
   - type: LINEAR_CONSTRAINT
     name: charge balance
@@ -410,10 +440,9 @@ aerosol processes:
 |---|---|---|
 | `version` | Existing | `"1.0.0"` (no version bump needed — additive extension) |
 | `name` | Existing | Mechanism name |
-| `species` | Existing | Gas-phase species with properties |
-| `phases` | Existing | Gas-phase definition with diffusion coefficients |
+| `species` | Existing (extended) | All species with universal properties (molecular weight, etc.) |
+| `phases` | Existing (extended) | Gas phase (`gas`) and condensed phases with phase-specific species properties |
 | `reactions` | Existing | Gas-phase reactions (Arrhenius, Troe, Photolysis, etc.) |
-| `condensed phases` | **New** | Condensed-phase species and properties |
 | `aerosol representations` | **New** | Particle size representations (UNIFORM_SECTION, SINGLE_MOMENT_MODE, TWO_MOMENT_MODE) |
 | `aerosol processes` | **New** | Aerosol processes and constraints (HENRY_LAW_EQUILIBRIUM, HENRY_LAW_PHASE_TRANSFER, DISSOLVED_REACTION, DISSOLVED_REVERSIBLE_REACTION, DISSOLVED_EQUILIBRIUM, LINEAR_CONSTRAINT) |
 
@@ -429,21 +458,28 @@ aerosol processes:
    gas-liquid equilibration is fast; the kinetic form when transfer timescales
    matter.
 
-2. **Condensed-phase species are separate from gas-phase species.** The `species`
-   array remains gas-phase only. Condensed-phase species live in
-   `condensed phases`. This matches the physical separation (gas vs.
-   aqueous/solid) and avoids ambiguity about which phase a species belongs to.
+2. **Unified species and phases.** All species (gas and condensed-phase) are
+   defined once in `species` with universal properties (molecular weight).
+   The `phases` section lists both the gas phase and condensed phases. The
+   phase named `gas` is treated specially as the gas phase; all others are
+   condensed phases available for aerosol representations. Phase-specific
+   properties (diffusion coefficient, density) are set on the species entry
+   within the phase. Species that partition between gas and condensed phases
+   (e.g., SO2, H2O2, O3) are defined once and included in both phases.
 
 3. **Representation ↔ phase binding is by name.** Each representation lists which
-   condensed phases it contains. The MIAM builder resolves the binding.
+   phases (from the `phases` section) it contains. The MIAM builder resolves
+   the binding.
 
 4. **Rate constant objects are inline.** Rather than referencing named rate
    constants, each process embeds its rate constant. This is consistent with how
    gas-phase reactions already embed their parameters.
 
-5. **No version bump.** These are additive keys. Configs without `condensed phases` /
-   `aerosol representations` / `aerosol processes` parse identically to before.
-   The v1 parser simply checks whether these optional sections exist.
+5. **No version bump.** These are additive extensions. Configs without
+   `aerosol representations` / `aerosol processes` parse identically to
+   before. Condensed phases in `phases` are simply ignored when no aerosol
+   model references them. The v1 parser checks whether the optional aerosol
+   sections exist.
 
 ---
 
@@ -490,6 +526,12 @@ solves without error.
 - Alternatively, if Mechanism Configuration is an external dependency:
   submit changes upstream or fork
 
+__Note from the human:__ Similar to MPAS-A, I cloned MechanismConfiguration
+directly under the `musica/` folder and checked out a development branch you
+can work on (`develop-something-ambitious`). Normally MPAS and MechanismConfiguration
+will not be present under `musica/`, so don't assume that in any of the code or
+build scripts. It's just so you have easy access to those folder for development.
+
 **Sub-tasks:**
 
 **7.2a — Data Model Extension**
@@ -497,23 +539,22 @@ solves without error.
 Add types to the Mechanism Configuration library's internal data model:
 
 ```
-CondensedPhase        { name, species[] }
 AerosolRepresentation { type, name, phases[], min_radius, max_radius,
                         geometric_mean_radius, geometric_standard_deviation }
 AerosolProcess        { type, ... (varies by type) }
 ```
 
 These live alongside the existing `Species`, `Phase`, `Reaction` types. The
-top-level `Mechanism` struct gains:
+existing `Phase` type already supports species with properties; condensed
+phases reuse it. The top-level `Mechanism` struct gains:
 
 ```cpp
 struct Mechanism {
   Version version;
   std::string name;
-  std::vector<Species> species;           // existing
-  std::vector<Phase> phases;              // existing
+  std::vector<Species> species;           // existing (now includes all species)
+  std::vector<Phase> phases;              // existing (now includes condensed phases)
   std::vector<Reaction> reactions;        // existing
-  std::vector<CondensedPhase> condensed_phases;          // NEW
   std::vector<AerosolRepresentation> aerosol_representations;  // NEW
   std::vector<AerosolProcess> aerosol_processes;               // NEW
 };
@@ -521,7 +562,7 @@ struct Mechanism {
 
 **7.2b — v1 Parser Extension**
 
-Extend the v1 YAML/JSON parser to read the three new sections. Each aerosol
+Extend the v1 YAML/JSON parser to read the two new sections. Each aerosol
 process type maps to a parser function:
 
 | Config `type` | Parser Function | MIAM Type |
@@ -543,9 +584,11 @@ Add a conversion function (analogous to existing `ParserV1()` → `Chemistry`):
 miam_config::ModelConfig ConvertToMiamConfig(const Mechanism& mechanism);
 ```
 
-This maps parsed `CondensedPhase` → `miam_config::PhaseDef`,
+This maps parsed `Phase` (non-gas) → `miam_config::PhaseDef`,
 `AerosolRepresentation` → `miam_config::Representation`,
 and `AerosolProcess` → `miam_config::Process` / `miam_config::Constraint`.
+The converter identifies condensed phases as any `Phase` whose name is not
+`gas` and that is referenced by an `AerosolRepresentation`.
 
 **7.2d — Unit Tests**
 
@@ -579,7 +622,7 @@ struct MechanismConfig {
 MechanismConfig ReadConfiguration(const std::string& config_path);
 ```
 
-When the parsed `Mechanism` has non-empty `condensed_phases` /
+When the parsed `Mechanism` has non-empty
 `aerosol_representations` / `aerosol_processes`, populate `miam_config`.
 Otherwise leave it as `std::nullopt`.
 
@@ -612,7 +655,7 @@ Same pattern for the string-based variant, if used.
 
 This function takes a pre-parsed `Chemistry` object. It cannot support MIAM
 through the current signature (no MIAM config). Options:
-- Leave as-is (gas-only path for programmatic API users).
+- Leave as-is (gas-only path for programmatic API users). __Note from the human__: this is fine, we only need what's required for the Fortran API usage for now
 - Add a new overload that accepts both `Chemistry` and `miam_config::ModelConfig`.
 
 For Fortran/config-driven use, this doesn't matter — they go through
@@ -650,6 +693,10 @@ programmatically. Add a new test that:
 This validates the full config → parser → builder → solver path before we
 involve Fortran.
 
+__Note from the human__: also make sure the Python function to turn an in-code
+mechanism to a config works, by using it to create a solver that is compared
+to a solver generated from the in-code mechanism
+
 ---
 
 ### Step 7.6: Fortran Unit Test
@@ -679,7 +726,7 @@ When Phase 8 uses a TS1+CAM Cloud config:
 
 1. The solver automatically includes MIAM (detected from config)
 2. The driver queries state variable names — MIAM variables appear alongside
-   gas-phase variables (e.g., `CLOUD.AQUEOUS.SO2_aq`, `CLOUD.AQUEOUS.Hp`)
+   gas-phase variables (e.g., `CLOUD.AQUEOUS.SO2`, `CLOUD.AQUEOUS.Hp`)
 3. The driver maps MPAS cloud liquid water content → `CLOUD.MODE.AQUEOUS.H2O`
 4. MIAM aerosol species are advected as tracers (same as gas-phase species)
 
@@ -727,6 +774,8 @@ either:
 **Mitigation:** Coordinate with the Mechanism Configuration maintainers early.
 The extension is additive (no breaking changes to existing parsing).
 
+__Note from the human__: See above about the local clone.
+
 ### 2. Rate Constant Functions vs. Named Forms
 
 MIAM processes use `std::function<double(const Conditions&)>` for rate
@@ -764,7 +813,7 @@ MIAM constraints require a DAE solver.
 - (b) Return an error with a clear message: "Config contains aerosol model;
   use a DAE solver type (RosenbrockDAE4StandardOrder recommended)."
 
-Option (b) is safer and more explicit.
+Option (b) is safer and more explicit. __Human agrees__
 
 ---
 
@@ -787,7 +836,7 @@ JW test and verify sulfate production in cloudy cells.
 ### Regression
 
 All existing tests (gas-phase configs, Chapman, TS1) must continue to pass.
-`CreateMicm()` with configs that have no `condensed phases` section must behave
+`CreateMicm()` with configs that have no aerosol sections must behave
 identically to before.
 
 ---
@@ -795,24 +844,32 @@ identically to before.
 ## Open Questions for Review
 
 1. **Should `HENRY_LAW_EQUILIBRIUM` entries require the solvent's molecular
-   weight and density, or should those be inferred from the condensed phase
-   species definition?** The MIAM `HenryLawEquilibriumConstraint` builder
+   weight and density, or should those be inferred from the phase's species
+   definition?** The MIAM `HenryLawEquilibriumConstraint` builder
    needs `Mw_solvent` and `rho_solvent`. The proposed schema puts these on
-   the solvent species in `condensed phases` (via `molecular weight` and
-   `density` properties). The parser would look them up by solvent name.
+   the solvent species: molecular weight in `species` (universal) and
+   density in the phase's species entry (phase-specific). The parser looks
+   them up by solvent name in the appropriate phase.
+
+__Human__: these should be inferred from the species/phase definitions
 
 2. **Should `CreateMicm()` auto-upgrade non-DAE solver types when MIAM is
    present, or return an error?** Proposed: return an error (explicit is
-   better than implicit).
+   better than implicit). __Human agrees__
 
-3. **Should `LINEAR_CONSTRAINT` `constant` values be fixed in config, or
-   should the host model be able to set them at runtime?** For CAM Cloud
-   Chemistry, the constants are the total mass of S, H2O2, O3 in each cell —
-   these may need to be computed from initial conditions rather than
-   hardcoded. This could be handled by having the host set them as solver
-   parameters, similar to how emissions rates are set.
+3. ~~**Should `LINEAR_CONSTRAINT` `constant` values be fixed in config, or
+   should the host model be able to set them at runtime?**~~ **RESOLVED.**
+   MIAM now supports `diagnose_from_state` on linear constraints. When
+   `diagnose from state: true` is set in config, the solver computes
+   $C = \sum_i c_i \cdot [S_i]$ from the current state at the beginning of
+   each solve step. Mass conservation constraints (sulfur, H2O2, O3) use
+   this mode so that the total adapts to each grid cell and changes from
+   emissions/transport/deposition between steps. Charge balance keeps a
+   fixed `constant [mol m-3]: 0.0`.
 
 4. **Should the Mechanism Configuration extension live in the mechanism_configuration
    repo (upstream) or in MUSICA?** The conversion layer (Step 7.2c,
    `ConvertToMiamConfig`) can live in MUSICA regardless, but the parser types
-   (Step 7.2a–b) should ideally be upstream.
+   (Step 7.2a–b) should ideally be upstream. __Human__: Yes, follow the pattern for
+   existing gas-phase functionality for what goes in `MechanismConfiguration` vs.
+   `MUSICA`
