@@ -13,6 +13,7 @@ target_sources(musica PRIVATE
   cuda_availability.cpp
   cuda_loader.cpp
   lambda_callback.cpp
+  miam_config_convert.cpp
   micm.cpp
   micm_c_interface.cpp
   parse.cpp

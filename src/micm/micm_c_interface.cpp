@@ -2,6 +2,10 @@
 #include <musica/micm/micm_c_interface.hpp>
 #include <musica/micm/parse.hpp>
 
+#ifdef MUSICA_USE_MIAM
+#include <musica/miam/miam_builder.hpp>
+#endif
+
 namespace musica
 {
   template<typename Func>
@@ -36,8 +40,14 @@ namespace musica
     return HandleErrors(
         [&]()
         {
-          Chemistry const chemistry = ReadConfiguration(std::string(config_path));
-          MICM* micm = new MICM(chemistry, solver_type);
+          MechanismConfig config = ReadMechanismConfiguration(std::string(config_path));
+#ifdef MUSICA_USE_MIAM
+          if (config.miam_config.has_value())
+          {
+            return CreateMicmWithMiam(config.chemistry, solver_type, *config.miam_config, error);
+          }
+#endif
+          MICM* micm = new MICM(config.chemistry, solver_type);
           NoError(error);
           return micm;
         },
@@ -61,9 +71,14 @@ namespace musica
     return HandleErrors(
         [&]()
         {
-          // Parse JSON/YAML string to Chemistry object
-          Chemistry chemistry = ReadConfigurationFromString(std::string(config_string));
-          MICM* micm = new MICM(chemistry, solver_type);
+          MechanismConfig config = ReadMechanismConfigurationFromString(std::string(config_string));
+#ifdef MUSICA_USE_MIAM
+          if (config.miam_config.has_value())
+          {
+            return CreateMicmWithMiam(config.chemistry, solver_type, *config.miam_config, error);
+          }
+#endif
+          MICM* micm = new MICM(config.chemistry, solver_type);
           NoError(error);
           return micm;
         },

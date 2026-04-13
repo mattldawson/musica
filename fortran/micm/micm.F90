@@ -13,6 +13,7 @@ module musica_micm
   public :: micm_t, solver_stats_t, get_micm_version, is_cuda_available
   public :: rosenbrock_solver_parameters_t, backward_euler_solver_parameters_t
   public :: UndefinedSolver, Rosenbrock, RosenbrockStandardOrder, BackwardEuler, BackwardEulerStandardOrder, CudaRosenbrock
+  public :: RosenbrockDAE4, RosenbrockDAE4StandardOrder, RosenbrockDAE6, RosenbrockDAE6StandardOrder
   private
 
   !> Wrapper for c solver stats
@@ -36,6 +37,10 @@ module musica_micm
     enumerator :: BackwardEuler              = 3
     enumerator :: BackwardEulerStandardOrder = 4
     enumerator :: CudaRosenbrock             = 5
+    enumerator :: RosenbrockDAE4             = 6
+    enumerator :: RosenbrockDAE4StandardOrder = 7
+    enumerator :: RosenbrockDAE6             = 8
+    enumerator :: RosenbrockDAE6StandardOrder = 9
   end enum
 
   !> C-binding type for Rosenbrock solver parameters

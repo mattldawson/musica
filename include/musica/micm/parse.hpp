@@ -1,6 +1,7 @@
 #pragma once
 
 #include <musica/error.hpp>
+#include <musica/miam/miam_types.hpp>
 #include <musica/micm/chemistry.hpp>
 #include <musica/micm/micm.hpp>
 
@@ -59,11 +60,27 @@ inline std::error_code make_error_code(MusicaParseErrc e)
 
 namespace musica
 {
+  /// @brief Extended mechanism config that may include MIAM aerosol model
+  struct MechanismConfig
+  {
+    Chemistry chemistry;                                    ///< Gas-phase chemistry
+    std::optional<miam_config::ModelConfig> miam_config;    ///< Aerosol model (if present)
+  };
+
+  MechanismConfig ReadMechanismConfiguration(const std::string& config_path);
+  MechanismConfig ReadMechanismConfigurationFromString(const std::string& json_or_yaml_string);
+
   Chemistry ReadConfiguration(const std::string& config_path);
   Chemistry ReadConfigurationFromString(const std::string& json_or_yaml_string);
   Chemistry ParserV0(const mechanism_configuration::ParserResult<>& result);
   Chemistry ConvertV1Mechanism(const mechanism_configuration::v1::types::Mechanism& v1_mechanism);
   Chemistry ParserV1(const mechanism_configuration::ParserResult<>& result);
+
+  /// @brief Convert parsed v1 aerosol sections to MIAM ModelConfig
+  /// @param mechanism The fully parsed v1 mechanism
+  /// @return MIAM model configuration (empty if no aerosol sections present)
+  std::optional<miam_config::ModelConfig> ConvertToMiamConfig(
+      const mechanism_configuration::v1::types::Mechanism& mechanism);
 
   mechanism_configuration::v1::types::Mechanism ConvertV0MechanismToV1(
       const std::string& config_path,
