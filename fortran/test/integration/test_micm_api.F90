@@ -499,6 +499,8 @@ contains
     ros_params%h_max = 100.0_real64
     ros_params%h_start = 1.0e-5_real64
     ros_params%max_number_of_steps = 500
+    ros_params%constraint_init_max_iterations = 50
+    ros_params%constraint_init_tolerance = 1.0e-6_real64
 
     call micm%set_rosenbrock_solver_parameters(ros_params, error)
     ASSERT( error%is_success() )
@@ -506,6 +508,7 @@ contains
     ros_result = micm%get_rosenbrock_solver_parameters(error)
     ASSERT( error%is_success() )
     ASSERT_EQ( ros_result%max_number_of_steps, 500 )
+    ASSERT_EQ( ros_result%constraint_init_max_iterations, 50 )
 
     deallocate(micm)
 

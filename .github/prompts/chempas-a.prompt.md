@@ -301,7 +301,9 @@ Compares MIAM Fortran unit test output against Python tutorial 14
     available. If so, we can just look for a MICM solver variable named:
     `CLOUD.MODE.AQUEOUS.H2O` and when it's present set it using the cloud liquid water,
     and if it's not there, assume there is no cloud chemistry. Other cloud species can be
-    treated like tracers to advect just like gas-phase species. 
+    treated like tracers to advect just like gas-phase species. Better yet, make this mapping
+    from cloud liquid water part of the configuration, so there's not hard-coded references
+    species species in the code. 
 41. **DAE constraint initialization** — Max iterations, tolerance for Henry's Law,
     dissociation equilibria, charge balance, mass conservation.
 42. **Integration test** — TS1 + CAM Cloud Chemistry on 480-km JW mesh with prescribed

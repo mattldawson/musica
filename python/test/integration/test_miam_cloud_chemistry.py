@@ -409,10 +409,10 @@ class TestMiamSolve:
         # Replace R1's ArrheniusRateConstant with a Python callable
         model.processes[0] = DissolvedReaction(
             phase_name="AQUEOUS",
-            reactant_names=["HSO3m", "H2O2_aq"],
-            product_names=["SO4mm", "H2O", "Hp"],
+            reactant_names=["HSO3m", "H2O2_aq", "Hp"],
+            product_names=["SO4mm", "H2O", "Hp", "Hp"],
             solvent_name="H2O",
-            rate_constant=lambda T: C_H2O_M * 7.45e7 * math.exp(
+            rate_constant=lambda T: C_H2O_M**2 * 7.45e7 * math.exp(
                 -4430.0 * (1.0 / T - 1.0 / T0)),
         )
 
@@ -716,13 +716,13 @@ def _create_kinetics_model():
                            min_radius=1e-6, max_radius=1e-5)
 
     # 3 kinetic S(IV)->S(VI) oxidation reactions (matching C++ Step 4)
-    # R1: HSO3- + H2O2_aq → SO4-- + H2O + H+
+    # R1: HSO3- + H2O2_aq + H+ → SO4-- + H2O + 2H+ (Hoffmann & Calvert 1985)
     r1 = DissolvedReaction(
         phase_name="AQUEOUS",
-        reactant_names=["HSO3m", "H2O2_aq"],
-        product_names=["SO4mm", "H2O", "Hp"],
+        reactant_names=["HSO3m", "H2O2_aq", "Hp"],
+        product_names=["SO4mm", "H2O", "Hp", "Hp"],
         solvent_name="H2O",
-        rate_constant=ArrheniusRateConstant(a=C_H2O_M * 7.45e7, c=4430.0),
+        rate_constant=ArrheniusRateConstant(a=C_H2O_M**2 * 7.45e7, c=4430.0),
     )
     # R2: HSO3- + O3_aq → SO4-- + H+
     r2 = DissolvedReaction(

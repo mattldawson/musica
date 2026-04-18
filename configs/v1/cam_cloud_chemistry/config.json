@@ -85,21 +85,24 @@
       }
     },
     {
-      "__comment": "R1: HSO3- + H2O2 -> SO4-- + H2O + H+",
+      "__comment": "R1: HSO3- + H2O2 + H+ -> SO4-- + H2O + 2H+ (Hoffmann & Calvert 1985)",
+      "__note": "k = 7.45e7 M^-2 s^-1; A = C_H2O_M^2 * 7.45e7; ignores 1/(1+13[H+]) denom (< 1% at pH>3)",
       "type": "DISSOLVED_REACTION",
       "condensed phase": "AQUEOUS",
       "solvent": "H2O",
       "reactants": [
         { "species name": "HSO3m", "coefficient": 1 },
-        { "species name": "H2O2",  "coefficient": 1 }
+        { "species name": "H2O2",  "coefficient": 1 },
+        { "species name": "Hp",    "coefficient": 1 }
       ],
       "products": [
         { "species name": "SO4mm", "coefficient": 1 },
         { "species name": "H2O",   "coefficient": 1 },
+        { "species name": "Hp",    "coefficient": 1 },
         { "species name": "Hp",    "coefficient": 1 }
       ],
       "rate constant": {
-        "A": 4.139e9,
+        "A": 2.282e11,
         "C": 4430.0
       }
     },
