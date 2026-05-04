@@ -192,7 +192,7 @@ def _run_stress(n_samples, seed, warm_solves, dt):
     return summary
 
 
-def _assert_summary(summary):
+def _assert_summary(summary, require_strict_tail=False):
     # Two-tier convergence policy: stricter for warm solves.
     cold_cap = _max_allowed(COLD_NONCONVERGED_RATE, summary["cold_attempts"], min_count=1)
     warm_cap = _max_allowed(WARM_NONCONVERGED_RATE, summary["warm_attempts"], min_count=1)
@@ -211,7 +211,7 @@ def _assert_summary(summary):
         f"Warm median internal steps too high: {summary['warm_median_steps']:.1f} "
         f">= {WARM_MEDIAN_STEPS_TARGET}"
     )
-    if summary["warm_kpi_count"] >= 100:
+    if require_strict_tail or summary["warm_kpi_count"] >= 100:
         assert summary["warm_p95_steps"] < WARM_P95_STEPS_TARGET, (
             f"Warm P95 internal steps too high: {summary['warm_p95_steps']:.1f} "
             f">= {WARM_P95_STEPS_TARGET}"
@@ -263,4 +263,45 @@ def test_ts1_cloud_lhs_stress_quick():
         f"top_outliers={summary['outliers']}"
     )
 
-    _assert_summary(summary)
+    _assert_summary(summary, require_strict_tail=False)
+
+
+@pytest.mark.skipif(
+    not os.path.exists(ts1_cloud.MPAS_TS1_CLOUD_CONFIG),
+    reason="TS1 cloud config not found",
+)
+def test_ts1_cloud_lhs_stress_strict_deep_gate():
+    """Strict deep gate for local stress campaigns.
+
+    Disabled by default to keep routine CI lightweight.
+    Enable locally with, for example:
+      TS1_CLOUD_STRESS_STRICT_SAMPLES=500
+    """
+    strict_samples = _env_int("TS1_CLOUD_STRESS_STRICT_SAMPLES", 0)
+    if strict_samples <= 0:
+        print("\nTS1-cloud strict deep gate disabled (set TS1_CLOUD_STRESS_STRICT_SAMPLES>0 to enable)")
+        assert True
+        return
+
+    seed = _env_int("TS1_CLOUD_STRESS_SEED", 20260504)
+    warm_solves = _env_int("TS1_CLOUD_STRESS_WARM_SOLVES", DEFAULT_WARM_SOLVES)
+    dt = _env_float("TS1_CLOUD_STRESS_DT", DEFAULT_DT)
+
+    summary = _run_stress(
+        n_samples=strict_samples,
+        seed=seed,
+        warm_solves=warm_solves,
+        dt=dt,
+    )
+
+    print(
+        "\nTS1-cloud strict deep summary: "
+        f"samples={summary['samples']}, cold_fail={summary['cold_failures']}/{summary['cold_attempts']}, "
+        f"warm_fail={summary['warm_failures']}/{summary['warm_attempts']}, "
+        f"warm_median_steps={summary['warm_median_steps']:.1f}, "
+        f"warm_p95_steps={summary['warm_p95_steps']:.1f}, "
+        f"warm_high_step_rate={summary['warm_high_step_rate']:.2%}, "
+        f"top_outliers={summary['outliers']}"
+    )
+
+    _assert_summary(summary, require_strict_tail=True)
