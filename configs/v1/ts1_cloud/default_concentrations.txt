@@ -1,0 +1,9 @@
+# Default concentrations [mol m-3] for non-advected condensed-phase species.
+# Set at the beginning of each chemistry timestep as initial guesses
+# for aqueous equilibrium calculations.
+# Format: <MICM species name> <concentration_mol_m3>
+CLOUD.AQUEOUS.Hp 1.0e-4
+CLOUD.AQUEOUS.OHm 1.0e-10
+CLOUD.AQUEOUS.HSO3m 1.0e-6
+CLOUD.AQUEOUS.SO3mm 1.0e-8
+CLOUD.AQUEOUS.SO2OOHm 0.0

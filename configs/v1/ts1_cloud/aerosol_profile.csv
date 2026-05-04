@@ -1,0 +1,17 @@
+# Aerosol stub profile for SURFACE reactions
+# Format: height_km,effective_radius_m,number_density_m-3
+# Provides a simple background aerosol for heterogeneous chemistry
+# Default: 100 nm radius, 1e9 particles/m³ in boundary layer, decreasing with altitude
+height_km,effective_radius_m,number_density_m-3
+0,2.820000e-08,1.000000e+11
+1,2.820000e-08,1.000000e+11
+2,2.820000e-08,8.000000e+10
+3,2.820000e-08,5.000000e+10
+5,2.820000e-08,3.000000e+10
+8,2.820000e-08,1.000000e+10
+12,2.820000e-08,5.000000e+09
+16,2.820000e-08,2.000000e+09
+20,2.820000e-08,1.000000e+09
+30,2.820000e-08,5.000000e+08
+50,2.820000e-08,1.000000e+08
+80,2.820000e-08,1.000000e+07

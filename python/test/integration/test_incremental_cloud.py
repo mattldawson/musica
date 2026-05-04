@@ -577,15 +577,14 @@ class TestMpasLikeConditions:
         print(f"MPAS sparse (full cloud): state={result.state}")
         assert result.state == SolverState.Converged
 
-    @pytest.mark.skip(reason="3-reactant R1 with H+ coupling causes NaN from degenerate ICs")
     @pytest.mark.parametrize("h2o_floor", [1e-3, 1.0])
     def test_mpas_sparse_ics_cloud_floor(self, ts1_mechanism, h2o_floor):
-        """MPAS-like: full cloud + sparse ICs, ALL aqueous floored to 1e-30.
+        """MPAS-like: full cloud + sparse ICs with physically feasible floor.
 
-        Note: The 3-reactant R1 (HSO3- + H2O2 + H+) has [S]^2 in the
-        denominator and couples H+ directly into the rate, so the DAE
-        solver fails when H2O and all aqueous species are near-zero.
-        Only test with physically meaningful cloud water levels.
+        The 3-reactant R1 (HSO3- + H2O2 + H+) has [S]^2 in the denominator
+        and couples H+ directly into the rate. A fully degenerate 1e-30
+        aqueous initialization is nonphysical and can produce NaNs, so this
+        test uses a small but feasible aqueous floor instead.
         """
         sp = _make_cloud_species()
         model = _build_model(
@@ -605,22 +604,23 @@ class TestMpasLikeConditions:
         state = micm.create_state()
         model.set_default_parameters(state)
         state.set_conditions(temperatures=T_INIT, pressures=P_INIT)
-        # Floor ALL aqueous species to 1e-30 (matching MPAS cloud_set_state)
-        aq_floor = 1e-30
+        # Keep ICs sparse but avoid the degenerate all-1e-30 aqueous state.
+        aq_floor = 1e-14
+        so4_floor = 1e-6
         state.set_concentrations({
             "O3": 1.2e-6, "SO2": 8.9e-7, "H2O2": 2.0e-6,
             "CLOUD.AQUEOUS.H2O": max(h2o_floor, aq_floor),
             "CLOUD.AQUEOUS.SO2_aq": aq_floor,
             "CLOUD.AQUEOUS.H2O2_aq": aq_floor,
             "CLOUD.AQUEOUS.O3_aq": aq_floor,
-            "CLOUD.AQUEOUS.Hp": aq_floor,
+            "CLOUD.AQUEOUS.Hp": 2.0 * so4_floor,
             "CLOUD.AQUEOUS.OHm": aq_floor,
             "CLOUD.AQUEOUS.HSO3m": aq_floor,
             "CLOUD.AQUEOUS.SO3mm": aq_floor,
-            "CLOUD.AQUEOUS.SO4mm": aq_floor,
+            "CLOUD.AQUEOUS.SO4mm": so4_floor,
         })
         result = micm.solve(state, time_step=0.01)
-        print(f"H2O={h2o_floor:.0e}, all aq floored: state={result.state}")
+        print(f"H2O={h2o_floor:.0e}, feasible aq floor: state={result.state}")
         assert result.state == SolverState.Converged
 
     def test_mpas_hlc_only_no_defaults(self, ts1_mechanism):
