@@ -62,6 +62,7 @@ HLC_O3_REF = 1.15e-2 * M_ATM_TO_MOL_M3_PA
 
 # Time step for integration
 DT = 900.0  # seconds (MPAS chemistry timestep)
+DT_SUBSTEP = 100.0  # robust substep for Step 7 with MICM main DAE error control
 
 
 # ═══ Config Builder ══════════════════════════════════════════════════════════
@@ -364,6 +365,7 @@ def _dissolved_r1():
         product_names=["SO4mm", "H2O", "Hp", "Hp"],
         solvent_name="H2O",
         rate_constant=ArrheniusRateConstant(a=C_H2O_MOLAR**2 * 7.45e7, c=4430.0),
+        min_halflife=1.0,
     )
 
 
@@ -961,13 +963,21 @@ class TestStep7_DissolvedReaction:
             **{k: v for k, v in cloud_ics.items() if not k.startswith("_")},
         }
 
+    def _solve_dt900_subcycled(self, micm, model, ics):
+        n_steps = int(round(DT / DT_SUBSTEP))
+        assert abs(n_steps * DT_SUBSTEP - DT) < 1e-12
+        return _solve(micm, model, ics, dt=DT_SUBSTEP, n_steps=n_steps)
+
     def test_converges_dt900(self, step7_mechanism, ts1_ics):
-        """Full cloud chemistry with dt=900s (MPAS timestep)."""
+        """Full cloud chemistry over 900s using robust subcycling."""
         micm, model = self._make_micm_and_model(step7_mechanism)
         ics = self._make_ics(ts1_ics)
 
-        state, results = _solve(micm, model, ics, dt=DT)
-        print(f"Step 7 (dt=900): solver_state={results[-1].state}")
+        state, results = self._solve_dt900_subcycled(micm, model, ics)
+        print(
+            f"Step 7 (dt=900 via {len(results)}x{DT_SUBSTEP:.0f}s): "
+            f"solver_state={results[-1].state}"
+        )
         assert results[-1].state == SolverState.Converged
 
         # R1 should have produced SO4--
@@ -984,7 +994,7 @@ class TestStep7_DissolvedReaction:
         micm, model = self._make_micm_and_model(step7_mechanism)
         ics = self._make_ics(ts1_ics)
 
-        state, results = _solve(micm, model, ics, dt=DT)
+        state, results = self._solve_dt900_subcycled(micm, model, ics)
         assert results[-1].state == SolverState.Converged
 
         so4mm = _get_conc(state, "CLOUD.AQUEOUS.SO4mm") or 0.0

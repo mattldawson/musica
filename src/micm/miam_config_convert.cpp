@@ -11,13 +11,25 @@
 
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 
 namespace musica
 {
   namespace
   {
     namespace mc = mechanism_configuration::v1::types;
+
+    template <typename T, typename = void>
+    struct has_min_halflife : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct has_min_halflife<T, std::void_t<decltype(std::declval<T>().min_halflife)>> : std::true_type
+    {
+    };
 
     /// @brief Find a species in the mechanism by name
     const mc::Species* FindSpecies(
@@ -211,6 +223,8 @@ namespace musica
               dr.phase_name = p.condensed_phase;
               dr.solvent_name = p.solvent;
               dr.rate_constant = ConvertArrhenius(p.rate_constant);
+              if constexpr (has_min_halflife<T>::value)
+                dr.min_halflife = p.min_halflife;
               for (const auto& r : p.reactants)
                 dr.reactant_names.push_back(r.species_name);
               for (const auto& pr : p.products)

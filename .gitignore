@@ -49,5 +49,6 @@ julia/deps/lib/
 
 .claude
 
+build-container/
 MechanismConfiguration/
 MPAS-Model/
