@@ -249,17 +249,22 @@ contains
       so4_initial = state%concentrations(1 + (idx_aq_SO4mm - 1) * vs)
     end associate
 
-    ! ── Adaptive time-stepping integration for 10 s ──
+    ! ── Adaptive time-stepping integration for 1800 s ──
+    ! Matches the Python TestKineticsValidation fixture: kinetic SO4
+    ! production is too small to assert at 10 s; 1800 s gives a clear signal
+    ! while keeping the test fast (< 1 s wall time).
     total_time = 0.0_real64
-    dt = 0.01_real64
-    do while (total_time < 10.0_real64 - 1.0e-10_real64)
-      time_step = min(dt, 10.0_real64 - total_time)
+    dt = 0.001_real64
+    do while (total_time < 1800.0_real64 - 1.0e-10_real64)
+      time_step = min(dt, 1800.0_real64 - total_time)
       call micm%solve(time_step, state, solver_state, solver_stats, error)
       ASSERT( error%is_success() )
       ASSERT_EQ( solver_state%get_char_array(), "Converged" )
       total_time = total_time + time_step
-      if (total_time > 0.1_real64 .and. dt < 0.1_real64) dt = 0.1_real64
-      if (total_time > 1.0_real64 .and. dt < 1.0_real64) dt = 1.0_real64
+      if (total_time > 0.01_real64 .and. dt < 0.01_real64) dt = 0.01_real64
+      if (total_time > 0.1_real64  .and. dt < 0.1_real64)  dt = 0.1_real64
+      if (total_time > 1.0_real64  .and. dt < 1.0_real64)  dt = 1.0_real64
+      if (total_time > 10.0_real64 .and. dt < 10.0_real64) dt = 10.0_real64
     end do
 
     ! ── Verify SO4 increased (kinetic production) ──
