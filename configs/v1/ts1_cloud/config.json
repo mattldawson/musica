@@ -19036,8 +19036,8 @@
       }
     },
     {
-      "__comment": "R1b: SO2OOH- + H+ -> SO4-- (irreversible, rate-capped)",
-      "__note": "k = c_H2O_L * 2.4e6 ~= 1.333e8; min_halflife=1s for solver stability",
+      "__comment": "R1b: SO2OOH- + H+ -> SO4-- + 2 H+ (acid-catalyzed; net + 1 H+, balanced)",
+      "__note": "k = c_H2O_L * 2.4e6 ~= 1.333e8; min_halflife=0.1s (Phase 4 sweep: 1.0 -> 0.1 eliminated all warm/cold non-convergence at N=500 LHS, p95 215 vs 375). H+ regenerated to balance charge (HSO5- + H+ -> SO4-- + 2 H+ pattern)",
       "type": "DISSOLVED_REACTION",
       "condensed phase": "AQUEOUS",
       "solvent": "H2O",
@@ -19055,13 +19055,17 @@
         {
           "species name": "SO4mm",
           "coefficient": 1
+        },
+        {
+          "species name": "Hp",
+          "coefficient": 2
         }
       ],
       "rate constant": {
         "A": 133300000.0,
         "C": 4430.0
       },
-      "min halflife [s]": 1.0
+      "min halflife [s]": 0.1
     },
     {
       "__comment": "R2: HSO3- + O3(aq) -> SO4-- + H+ (O3 pathway, rate-capped)",
