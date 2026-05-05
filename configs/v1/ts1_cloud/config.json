@@ -1377,24 +1377,28 @@
       "name": "Hp",
       "molecular weight [kg mol-1]": 0.00101,
       "__absolute tolerance": 1e-12,
+      "__is_advected": true,
       "__mpas_default_concentration [mol m-3]": 0.0001
     },
     {
       "name": "OHm",
       "molecular weight [kg mol-1]": 0.01701,
       "__absolute tolerance": 1e-12,
+      "__is_advected": true,
       "__mpas_default_concentration [mol m-3]": 1e-10
     },
     {
       "name": "HSO3m",
       "molecular weight [kg mol-1]": 0.08107,
       "__absolute tolerance": 1e-12,
+      "__is_advected": true,
       "__mpas_default_concentration [mol m-3]": 1e-06
     },
     {
       "name": "SO3mm",
       "molecular weight [kg mol-1]": 0.08007,
       "__absolute tolerance": 1e-12,
+      "__is_advected": true,
       "__mpas_default_concentration [mol m-3]": 1e-08
     },
     {
@@ -1407,6 +1411,7 @@
     {
       "name": "SO2OOHm",
       "molecular weight [kg mol-1]": 0.11307,
+      "__is_advected": true,
       "__absolute tolerance": 1e-12
     },
     {
